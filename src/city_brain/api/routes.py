@@ -1,14 +1,24 @@
 from __future__ import annotations
+
 from fastapi import APIRouter
+
+from city_brain.pipeline.orchestrator import Pipeline, PipelineResult
 from city_brain.schemas.guardian import GuardianVerdict
-from city_brain.schemas.twin import DispatchCommand
+from city_brain.schemas.twin import DispatchCommand, SensorReading
 
 router = APIRouter()
+_pipeline = Pipeline()
 
 
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post("/ingest", response_model=PipelineResult)
+async def ingest(reading: SensorReading) -> PipelineResult:
+    """Feed a reading through the full pipeline: detect -> decide -> gate -> dispatch."""
+    return await _pipeline.process(reading)
 
 
 @router.post("/verify_reading")
