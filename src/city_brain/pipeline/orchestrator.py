@@ -73,12 +73,23 @@ class Pipeline:
             )
 
         # 2. Decide (held until verdict)
-        decision: Decision = decide(incident, trust_score=0.0)
+        decision: Decision = decide(incident, trust_score=0.0, reading=reading)
+        log.info(
+            "decision chosen_by=%s confidence=%.3f reason=%s",
+            decision.chosen_by,
+            decision.confidence,
+            decision.reason,
+        )
         sm.transition(IncidentState.DECIDED_HELD)
         await self.audit.record(
             "decided_held",
             reading.correlation_id,
-            {"incident": incident.kind.value, "commands": len(decision.commands)},
+            {
+                "incident": incident.kind.value,
+                "commands": len(decision.commands),
+                "chosen_by": decision.chosen_by,
+                "confidence": decision.confidence,
+            },
         )
 
         # 3. Verify with Guardian
