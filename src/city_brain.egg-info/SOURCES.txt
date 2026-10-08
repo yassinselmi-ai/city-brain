@@ -12,6 +12,9 @@ src/city_brain/api/__init__.py
 src/city_brain/api/routes.py
 src/city_brain/audit/__init__.py
 src/city_brain/audit/log.py
+src/city_brain/clients/__init__.py
+src/city_brain/clients/guardian_client.py
+src/city_brain/clients/twin_client.py
 src/city_brain/decision/__init__.py
 src/city_brain/decision/engine.py
 src/city_brain/decision/state_machine.py
@@ -21,8 +24,12 @@ src/city_brain/dispatch/__init__.py
 src/city_brain/dispatch/trust_gate.py
 src/city_brain/ingestion/__init__.py
 src/city_brain/ingestion/stream.py
+src/city_brain/pipeline/__init__.py
+src/city_brain/pipeline/orchestrator.py
 src/city_brain/schemas/__init__.py
 src/city_brain/schemas/guardian.py
 src/city_brain/schemas/twin.py
+tests/test_mocks.py
+tests/test_pipeline.py
 tests/test_schemas.py
 tests/test_smoke.py
