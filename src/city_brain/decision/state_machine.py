@@ -12,8 +12,15 @@ class IncidentState(StrEnum):
 
 
 _ALLOWED: dict[IncidentState, set[IncidentState]] = {
-    IncidentState.DETECTED: {IncidentState.DECIDED_HELD, IncidentState.VERIFIED},
-    IncidentState.DECIDED_HELD: {IncidentState.DISPATCHED, IncidentState.DISCARDED},
+    IncidentState.DETECTED: {
+        IncidentState.DECIDED_HELD,  # critical path: decide before gate
+        IncidentState.VERIFIED,      # normal path: verify first
+        IncidentState.DISCARDED,     # normal path: Guardian rejects before we decide
+    },
+    IncidentState.DECIDED_HELD: {
+        IncidentState.DISPATCHED,
+        IncidentState.DISCARDED,     # critical path: verdict rejected the held decision
+    },
     IncidentState.VERIFIED: {IncidentState.DECIDED},
     IncidentState.DECIDED: {IncidentState.DISPATCHED},
     IncidentState.DISPATCHED: set(),
