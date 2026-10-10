@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from city_brain.observability.metrics import METRICS
 from fastapi import APIRouter
 from city_brain.mcp import get_tools
 from city_brain.mcp.schemas import MCPTool
@@ -40,3 +40,11 @@ async def mcp_tools() -> list[MCPTool]:
     (Model Context Protocol) tool listing convention.
     """
     return get_tools()
+@router.get("/metrics")
+async def metrics() -> dict:
+    """Operational metrics for observability and evaluation.
+
+    Includes critical-path parallelism gains, near-misses, dispatch/discard
+    counts. See ARCHITECTURE.md §3 and §8.
+    """
+    return METRICS.snapshot()
