@@ -35,7 +35,6 @@ from city_brain.detection.rules import DetectedIncident, detect
 from city_brain.dispatch.trust_gate import TrustGate
 from city_brain.observability.metrics import METRICS
 from city_brain.security.replay_guard import ReplayGuard
-
 from city_brain.schemas.guardian import GuardianVerdict
 from city_brain.schemas.twin import ActionAck, SensorReading, SeverityClass
 
@@ -68,13 +67,13 @@ class Pipeline:
         self.audit = audit or AuditLogger()
         self.replay_guard = ReplayGuard()
 
-
     # ------------------------------------------------------------------
     # Public entry point — routes to the correct path
     # ------------------------------------------------------------------
     async def process(self, reading: SensorReading) -> PipelineResult:
         METRICS.record_ingest()
-                # §8: reject replayed / stale readings before anything else.
+
+        # §8: reject replayed / stale readings before anything else.
         replay = self.replay_guard.check(reading)
         if not replay.allowed:
             METRICS.record_replay_rejected()
@@ -98,6 +97,7 @@ class Pipeline:
                 IncidentState.DETECTED,
                 discarded_reason="replay_rejected",
             )
+
         log.info(
             "ingest sensor=%s type=%s severity=%s corr=%s",
             reading.sensor_id, reading.type, reading.severity_class, reading.correlation_id,
@@ -133,8 +133,6 @@ class Pipeline:
         log.info("critical path corr=%s", reading.correlation_id)
 
         # Run decision and verification concurrently.
-        # Measure both, plus the theoretical sequential time, so we can log
-        # how much the parallelism actually saved.
         t0 = time.perf_counter()
 
         async def _timed_decide() -> tuple[Decision, float]:
@@ -151,10 +149,8 @@ class Pipeline:
             _timed_decide(), _timed_verify()
         )
         parallel_ms = (time.perf_counter() - t0) * 1000.0
-        # Reporting note: saved_ms here is the *potential* gain from
-        # parallelism = min(decide, verify). On this system verify is
-        # I/O-bound (network) so the realistic wall-clock saving is the
-        # full cost of the shorter task. Never negative, always defensible.
+
+        # Reporting: saved_ms = potential gain from parallelism = min(decide, verify).
         saved_ms = max(0.0, min(decide_ms, verify_ms))
         METRICS.record_critical_path(saved_ms)
 
@@ -174,6 +170,15 @@ class Pipeline:
                 "saved_ms": round(saved_ms, 2),
                 "chosen_by": decision.chosen_by,
                 "confidence": decision.confidence,
+            },
+        )
+
+        await self.audit.record(
+            "guardian_verdict",
+            reading.correlation_id,
+            {
+                "verdict": verdict.verdict.value if verdict else "unreachable",
+                "trust_score": verdict.trust_score if verdict else None,
             },
         )
 

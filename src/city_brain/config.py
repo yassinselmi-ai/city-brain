@@ -7,8 +7,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Storage
-    database_url: str = "postgresql://citybrain:citybrain@localhost:5432/citybrain"
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql://citybrain:citybrain@localhost:5433/citybrain"
+    redis_url: str = "redis://localhost:6380/0"
 
     # Guardian
     guardian_url: str = "http://localhost:8001"

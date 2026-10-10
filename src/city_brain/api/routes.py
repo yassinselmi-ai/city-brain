@@ -4,6 +4,8 @@ from fastapi import APIRouter
 from city_brain.mcp import get_tools
 from city_brain.mcp.schemas import MCPTool
 
+from city_brain.audit.db import audit_db
+
 from city_brain.pipeline.orchestrator import Pipeline, PipelineResult
 from city_brain.schemas.guardian import GuardianVerdict
 from city_brain.schemas.twin import DispatchCommand, SensorReading
@@ -48,3 +50,22 @@ async def metrics() -> dict:
     counts. See ARCHITECTURE.md §3 and §8.
     """
     return METRICS.snapshot()
+@router.get("/audit/{correlation_id}")
+async def audit_trace(correlation_id: str) -> dict:
+    """Full audit trail for one incident, read from PostgreSQL.
+
+    Returns every event (reading_received, decision, verdict, dispatch, ...)
+    in chronological order. Proof that the pipeline is fully traceable.
+    """
+    events = await audit_db.fetch_trace(correlation_id)
+    return {
+        "correlation_id": correlation_id,
+        "count": len(events),
+        "events": events,
+    }
+
+
+@router.get("/audit")
+async def audit_count() -> dict:
+    """Total number of audit events stored."""
+    return {"total_events": await audit_db.count()}
