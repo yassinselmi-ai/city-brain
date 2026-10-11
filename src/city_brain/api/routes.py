@@ -5,7 +5,8 @@ from city_brain.mcp import get_tools
 from city_brain.mcp.schemas import MCPTool
 
 from city_brain.audit.db import audit_db
-
+from city_brain.ingestion.stream import RedisStreamConsumer
+import redis.asyncio as aioredis
 from city_brain.pipeline.orchestrator import Pipeline, PipelineResult
 from city_brain.schemas.guardian import GuardianVerdict
 from city_brain.schemas.twin import DispatchCommand, SensorReading
@@ -21,7 +22,12 @@ async def health() -> dict[str, str]:
 
 @router.post("/ingest", response_model=PipelineResult)
 async def ingest(reading: SensorReading) -> PipelineResult:
-    """Feed a reading through the full pipeline: detect -> decide -> gate -> dispatch."""
+    """Direct HTTP ingestion for testing.
+
+    Note: production ingestion goes through the Redis consumer
+    (scripts/run_consumer.py). This endpoint is kept for manual tests
+    and for the /docs interactive UI.
+    """
     return await _pipeline.process(reading)
 
 

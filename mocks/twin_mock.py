@@ -19,6 +19,7 @@ from city_brain.schemas.twin import (
     SensorType,
     SeverityClass,
 )
+from city_brain.ingestion.stream import publish_reading
 
 logging.basicConfig(level="INFO")
 log = logging.getLogger("twin_mock")
@@ -105,3 +106,33 @@ async def fabricate(
     global _latest
     _latest = r
     return r
+@app.post("/readings/publish")
+async def publish(
+    sensor_id: str = "cam-redis-1",
+    type: SensorType = SensorType.EMERGENCY_CALL,
+    value: float | None = None,
+    zone: str = "downtown",
+    severity: SeverityClass = SeverityClass.CRITICAL,
+    incident_type: str = "accident",
+    seq: int = 1,
+) -> dict:
+    """Publish a reading to the Redis stream (real ingestion path)."""
+    from datetime import datetime, timezone
+    import uuid
+
+    reading = SensorReading(
+        sensor_id=sensor_id,
+        type=type,
+        value=value,
+        unit=None,
+        ts=datetime.now(timezone.utc),
+        seq=seq,
+        sig=f"mock-sig-{sensor_id}-{seq}",
+        severity_class=severity,
+        correlation_id=f"corr-{uuid.uuid4().hex[:8]}",
+        zone=zone,
+        emergency={"incident_type": incident_type} if type == SensorType.EMERGENCY_CALL else None,
+    )
+    msg_id = await publish_reading(reading)
+    log.info("published to stream msg_id=%s corr=%s", msg_id, reading.correlation_id)
+    return {"msg_id": msg_id, "correlation_id": reading.correlation_id}

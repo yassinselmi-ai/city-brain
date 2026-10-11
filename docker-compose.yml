@@ -9,6 +9,21 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  consumer:
+    build: .
+    command: ["python", "scripts/run_consumer.py"]
+    environment:
+      DATABASE_URL: postgresql://citybrain:citybrain@postgres:5432/citybrain
+      REDIS_URL: redis://redis:6379/0
+      TRUST_THRESHOLD: "0.7"
+      GUARDIAN_URL: http://api:8000
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: on-failure:5
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -21,6 +36,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U citybrain"]
       interval: 5s
       retries: 10
+
   redis:
     image: redis:7-alpine
     ports: ["6380:6379"]
@@ -28,5 +44,6 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 10
+
 volumes:
   pgdata:

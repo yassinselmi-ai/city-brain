@@ -3,16 +3,16 @@
 Concrete proof that the City Brain layer implements the behaviors described
 in `ARCHITECTURE.md`. Every claim here is backed by a runnable command.
 
-Date of last verification: 2026-10-10
+Date of last verification: 2026-10-11
 
 ---
 
 ## 1. Test suite
 
     $ pytest
-    26 passed
+    28 passed
 
-Covers: mocks, schemas, model, pipeline paths, replay guard, smoke.
+Covers: mocks, schemas, model, pipeline paths, replay guard, Redis stream, smoke.
 
 ## 2. Adversarial scenarios
 
@@ -66,7 +66,46 @@ Nothing is dispatched. The pipeline returns cleanly instead of crashing.
 
 Both invariants hold: no dispatch without a trusted verdict.
 
-## 7. Replay protection (§8)
+## 7. Redis Streams ingestion (§7)
+
+The Twin publishes readings to a Redis Stream. A standalone consumer
+(`scripts/run_consumer.py`) reads them via a consumer group and calls
+the pipeline. Fail-fast if Redis is unreachable — Docker restarts it.
+
+    $ python scripts/run_consumer.py
+    audit db connected events=N
+    consumer started, waiting for readings on stream=sensors.readings
+
+    $ curl -X POST "http://127.0.0.1:8002/readings/publish?sensor_id=redis-demo&severity=critical&incident_type=fire&seq=1"
+    {"msg_id": "1730...-0", "correlation_id": "corr-83e32d13"}
+
+    # In the consumer terminal:
+    processed corr=corr-83e32d13 state=dispatched kind=fire
+
+Confirms the full loop: Twin → Redis Stream → City Brain consumer
+→ decision (ML model) → Guardian → trust gate → dispatch → audit.
+
+## 8. Audit trail in PostgreSQL (§7, §8)
+
+    $ curl http://127.0.0.1:8000/audit/corr-audit-3
+    {
+      "correlation_id": "corr-audit-3",
+      "count": 5,
+      "events": [
+        {"event_type": "reading_received"},
+        {"event_type": "critical_parallel_timing"},
+        {"event_type": "guardian_verdict"},
+        {"event_type": "dispatched"},
+        {"event_type": "dispatched"}
+      ]
+    }
+
+    $ docker exec city-brain-postgres-1 psql -U citybrain -d citybrain -c \
+        "SELECT event_type FROM audit_log WHERE correlation_id='corr-audit-3' ORDER BY id"
+
+Every decision is durably persisted and queryable by correlation_id.
+
+## 9. Replay protection (§8)
 
     $ python -c "... send same sensor_id + seq twice ..."
     1st: no_incident
@@ -83,4 +122,5 @@ All commands above assume:
 
     Terminal 1: python scripts/run_mocks.py
     Terminal 2: uvicorn city_brain.main:app --port 8000 --reload
-    Terminal 3: <commands from this document>
+    Terminal 3: python scripts/run_consumer.py      # Redis ingestion
+    Terminal 4: <commands from this document>
