@@ -1,8 +1,9 @@
-"""Wrapper around the trained decision model.
+"""Wrapper around the trained decision model (v2).
 
 Loads the RandomForest .pkl at import time, exposes a predict() that
 takes a SensorReading and returns (action_name, confidence).
 
+Feature extraction matches scripts/train_model.py FEATURES list.
 Falls back to None on any error, so callers can decide what to do.
 """
 
@@ -20,7 +21,7 @@ from city_brain.schemas.twin import SensorReading, SensorType
 log = logging.getLogger(__name__)
 
 
-# Must match the FEATURES list in scripts/train_model.py
+# Must match FEATURES in scripts/train_model.py
 FEATURES = [
     "is_emergency_call",
     "is_traffic",
@@ -33,7 +34,17 @@ FEATURES = [
     "incident_fire",
     "incident_flood",
     "incident_other",
+    "hour_of_day",
+    "day_of_week",
+    "zone_index",
+    "value_trend",
+    "recent_incidents_zone",
 ]
+
+
+def _zone_index(zone: str) -> float:
+    """Stable hash of zone name -> 0..1. Must match train_model.py."""
+    return (hash(zone) % 1000) / 1000.0
 
 
 class DecisionModel:
@@ -50,7 +61,19 @@ class DecisionModel:
             bundle = joblib.load(self.path)
             self._model = bundle["model"]
             self._actions = bundle["actions"]
-            log.info("decision model loaded path=%s actions=%d", self.path, len(self._actions))
+            n_features = len(bundle.get("features", []))
+            log.info(
+                "decision model loaded path=%s actions=%d features=%d",
+                self.path, len(self._actions), n_features,
+            )
+            expected = len(FEATURES)
+            if n_features and n_features != expected:
+                log.error(
+                    "MODEL FEATURE MISMATCH: .pkl has %d features, wrapper has %d. "
+                    "Retrain with `python scripts/train_model.py`.",
+                    n_features, expected,
+                )
+                self._model = None
         except Exception as e:
             log.error("failed to load decision model from %s: %s", self.path, e)
             self._model = None
@@ -65,6 +88,9 @@ class DecisionModel:
         it = (reading.emergency.incident_type.lower() if reading.emergency else "")
         val = reading.value if isinstance(reading.value, (int, float)) else None
 
+        hour = reading.ts.hour
+        day = reading.ts.weekday()
+
         return [
             1.0 if stype == SensorType.EMERGENCY_CALL else 0.0,
             1.0 if stype == SensorType.TRAFFIC else 0.0,
@@ -77,6 +103,11 @@ class DecisionModel:
             1.0 if it == "fire" else 0.0,
             1.0 if it == "flood" else 0.0,
             1.0 if it in ("medical", "other", "") else 0.0,
+            hour / 23.0,
+            day / 6.0,
+            _zone_index(reading.zone),
+            0.0,   # value_trend — placeholder, needs history
+            0.0,   # recent_incidents_zone — placeholder, needs history
         ]
 
     def predict(self, reading: SensorReading) -> tuple[str, float] | None:
@@ -93,7 +124,6 @@ class DecisionModel:
             return None
 
 
-# Module-level singleton so the .pkl is loaded once
 _model_singleton: DecisionModel | None = None
 
 
