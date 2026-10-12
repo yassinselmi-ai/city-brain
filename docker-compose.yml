@@ -18,7 +18,6 @@ services:
       DATABASE_URL: postgresql://citybrain:citybrain@postgres:5432/citybrain
       REDIS_URL: redis://redis:6379/0
       TRUST_THRESHOLD: "0.7"
-      GUARDIAN_URL: http://api:8000
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
