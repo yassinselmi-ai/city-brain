@@ -69,6 +69,45 @@ Every dispatch decision is logged with the source of the decision:
 `chosen_by=model` proves the decision came from the trained RandomForest,
 not from the rule-based fallback in `decision/engine.py`.
 
+## 4bis. Real training data
+
+Two public NYC Open Data datasets were downloaded once and adapted
+offline via `scripts/load_real_dataset.py`. No API calls are made at
+runtime — the resulting `.pkl` is committed to the repo.
+
+    Source                              Rows used
+    ──────────────────────────────────  ─────────
+    NYC Motor Vehicle Collisions        500  (from 10 000)
+    NYC Fire Incident Dispatch Data     813  (from  4 097)
+    ──────────────────────────────────  ─────────
+    Total real                         1 313
+
+Both sources are subsampled per class to counter the natural 93%
+imbalance of `dispatch_ambulance_police` in raw collisions data.
+The synthetic generator provides the remaining 20 000 examples with
+balanced class distribution, ensuring the model performs well on the
+rare but critical `open_valve` and `dispatch_fire_ambulance` actions.
+
+    $ python scripts/load_real_dataset.py
+    Loading data\nyc_collisions.csv...
+      -> 10000 collision rows
+    Loading data\nyc_fires.csv...
+      -> 4097 fire rows
+    Total real rows: 14097
+    Saved to data\real_samples.csv
+
+    $ python scripts/train_model.py
+    Loading real NYC data (balanced subsample, cap=500/class)...
+      real dispatch_ambulance_police   500 (from 13073)
+      real dispatch_fire_ambulance     500 (from   711)
+      real open_valve                  163 (from   163)
+      real no_action                   150 (from   150)
+    Total training pool: 21313 examples
+      synthetic: 20000
+      real:      1313
+    Test accuracy: 0.9669
+    F1 macro:      0.95
+
 ## 5. Fail-safe behavior (§8)
 
 When Guardian is unreachable:
