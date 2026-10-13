@@ -52,13 +52,14 @@ Test modules:
 
 ## 4. Model decisions
 
-Decision model v2: RandomForest, **16 features**, trained on **20 000
-synthetic examples** with realistic distributions (hour of day, day of
-week, zone, seasonal incident patterns, label noise).
+Decision model v3: RandomForest, **16 features**, trained on **21 313
+examples** — 20 000 synthetic with realistic distributions + 1 313 real
+incidents from NYC Open Data (Motor Vehicle Collisions h9gi-nx95 and
+Fire Incident Dispatch 8m42-w767, subsampled to 500/class for balance).
 
-    Train accuracy: 0.9758
-    Test  accuracy: 0.9752    ← model has never seen the test set
-    F1 macro:       0.96
+    Train accuracy: 0.9677
+    Test  accuracy: 0.9669
+    F1 macro:       0.95
 
 Every dispatch decision is logged with the source of the decision:
 
