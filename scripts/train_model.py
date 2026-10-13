@@ -1,19 +1,28 @@
-"""Train the City Brain decision model (v2).
+"""Train the City Brain decision model (v3).
 
-Improvements over v1:
-  - 20k examples (up from 2k)
-  - Realistic feature distribution (time of day, day of week, zone, trend)
-  - Seasonal/hourly incident patterns
-  - 3% label noise to avoid overfitting
-  - Proper train/test split with accuracy reporting
+Improvements over v2:
+  - Hybrid training: synthetic + real NYC data
+  - Real data from NYC Open Data:
+      * 10 000 motor vehicle collisions (h9gi-nx95)
+      * ~4 000 fire/emergency dispatches (8m42-w767)
+  - Class-balanced subsampling of real data to avoid the 93%
+    dispatch_ambulance_police bias observed in raw NYC records
+  - Same 16-feature schema as v2 (no downstream changes needed)
+  - Reported as train/test split with per-class metrics
 
-Run once:  python scripts/train_model.py
-Output:    models/city_brain_v1.pkl
+Inputs:
+    data/real_samples.csv  (produced by scripts/load_real_dataset.py)
+Output:
+    models/city_brain_v1.pkl
+
+Run:  python scripts/train_model.py
 """
 
 from __future__ import annotations
 
+import csv
 import random
+from collections import defaultdict
 from pathlib import Path
 
 import joblib
@@ -22,6 +31,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 
+# ---------------------------------------------------------------------------
+# Label space
+# ---------------------------------------------------------------------------
 ACTIONS = [
     "dispatch_ambulance_police",
     "dispatch_fire_ambulance",
@@ -30,6 +42,9 @@ ACTIONS = [
     "no_action",
 ]
 
+# ---------------------------------------------------------------------------
+# Feature space — DO NOT change; must match src/city_brain/decision/model.py
+# ---------------------------------------------------------------------------
 FEATURES = [
     "is_emergency_call",
     "is_traffic",
@@ -50,9 +65,12 @@ FEATURES = [
 ]
 
 SENSOR_TYPES = ["emergency_call", "traffic", "water", "air", "power"]
-EMERGENCY_SUBTYPES = ["accident", "fire", "flood", "medical", "other"]
 ZONES = ["downtown", "harbor", "north", "south", "airport", "industrial"]
 
+
+# ---------------------------------------------------------------------------
+# Synthetic data generator (unchanged from v2)
+# ---------------------------------------------------------------------------
 
 def _seasonal_weights(month: int) -> dict[str, float]:
     if month in (6, 7, 8):
@@ -71,11 +89,7 @@ def _traffic_weights(hour: int) -> float:
 
 
 def _random_reading() -> dict:
-    hour = random.choices(
-        range(24),
-        weights=[_traffic_weights(h) for h in range(24)],
-        k=1,
-    )[0]
+    hour = random.choices(range(24), weights=[_traffic_weights(h) for h in range(24)], k=1)[0]
     day = random.randint(0, 6)
     month = random.randint(1, 12)
     zone = random.choice(ZONES)
@@ -98,9 +112,7 @@ def _random_reading() -> dict:
 
     if stype == "emergency_call":
         weights = _seasonal_weights(month)
-        reading["incident_type"] = random.choices(
-            list(weights.keys()), weights=list(weights.values()), k=1,
-        )[0]
+        reading["incident_type"] = random.choices(list(weights.keys()), weights=list(weights.values()), k=1)[0]
     elif stype in ("traffic", "water", "air", "power"):
         reading["value"] = round(random.uniform(0.0, 1.0), 3)
         reading["trend"] = round(random.uniform(-0.3, 0.3), 3)
@@ -108,7 +120,7 @@ def _random_reading() -> dict:
     return reading
 
 
-def _label(reading: dict) -> str:
+def _label_synthetic(reading: dict) -> str:
     if reading["type"] == "emergency_call":
         it = reading.get("incident_type", "other")
         if it == "accident":
@@ -170,30 +182,96 @@ def _features(reading: dict) -> list[float]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Real data loader
+# ---------------------------------------------------------------------------
+
+def _load_real_samples(path: Path, per_class_cap: int = 500) -> tuple[list[dict], list[str]]:
+    """Load real_samples.csv, subsample per class to balance.
+
+    per_class_cap: maximum number of examples per label to keep.
+    """
+    if not path.exists():
+        print(f"[warn] {path} not found — skipping real data")
+        return [], []
+
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    with path.open(encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            label = r["label"]
+            if label not in ACTIONS:
+                continue
+            buckets[label].append({
+                "type": r["type"],
+                "severity_class": r["severity_class"],
+                "hour": int(r["hour"]),
+                "day": int(r["day"]),
+                "zone": r["zone"] or "unknown",
+                "value": float(r["value"]) if r["value"] else None,
+                "trend": float(r["trend"]) if r["trend"] else 0.0,
+                "incident_type": r["incident_type"],
+                "recent_incidents": 0,
+            })
+
+    sampled: list[dict] = []
+    labels: list[str] = []
+    for label, items in buckets.items():
+        random.shuffle(items)
+        keep = items[:per_class_cap]
+        sampled.extend(keep)
+        labels.extend([label] * len(keep))
+        print(f"  real {label:32s} {len(keep):5d} (from {len(items)})")
+    return sampled, labels
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     random.seed(42)
     np.random.seed(42)
 
-    N = 20_000
-    print(f"Generating {N} synthetic readings (v2)...")
-    readings = [_random_reading() for _ in range(N)]
-    X = np.array([_features(r) for r in readings])
-    y_raw = [_label(r) for r in readings]
-    y = _apply_label_noise(y_raw, noise=0.03)
+    # 1. Synthetic
+    N_SYNTH = 20_000
+    print(f"Generating {N_SYNTH} synthetic readings...")
+    synth = [_random_reading() for _ in range(N_SYNTH)]
+    synth_labels = _apply_label_noise([_label_synthetic(r) for r in synth], noise=0.03)
 
-    print("\nClass distribution:")
-    for action in ACTIONS:
-        count = sum(1 for label in y if label == action)
+    # 2. Real (balanced subsample)
+    print("\nLoading real NYC data (balanced subsample, cap=500/class)...")
+    real, real_labels = _load_real_samples(Path("data/real_samples.csv"), per_class_cap=500)
+
+    # 3. Combine
+    all_readings = synth + real
+    all_labels = synth_labels + real_labels
+    print(f"\nTotal training pool: {len(all_readings)} examples")
+    print(f"  synthetic: {len(synth)}")
+    print(f"  real:      {len(real)}")
+
+    print("\nFinal class distribution:")
+    from collections import Counter
+    for action, count in Counter(all_labels).most_common():
         print(f"  {action:32s} {count:5d}")
 
+    # 4. Features
+    X = np.array([_features(r) for r in all_readings])
+    y = np.array(all_labels)
+
+    # 5. Split
     print("\nSplitting train/test 80/20...")
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y,
     )
 
-    print("Training RandomForest (100 trees, max_depth=10)...")
+    # 6. Train
+    print("Training RandomForest (100 trees, max_depth=10, balanced)...")
     clf = RandomForestClassifier(
-        n_estimators=100, max_depth=10, random_state=42, n_jobs=-1,
+        n_estimators=100,
+        max_depth=10,
+        random_state=42,
+        n_jobs=-1,
+        class_weight="balanced",
     )
     clf.fit(X_train, y_train)
 
@@ -206,9 +284,7 @@ def main() -> None:
     print(classification_report(y_test, clf.predict(X_test), zero_division=0))
 
     print("Feature importances:")
-    for name, imp in sorted(
-        zip(FEATURES, clf.feature_importances_), key=lambda x: -x[1]
-    ):
+    for name, imp in sorted(zip(FEATURES, clf.feature_importances_), key=lambda x: -x[1]):
         print(f"  {name:24s} {imp:.4f}")
 
     out = Path("models")
