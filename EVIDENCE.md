@@ -3,7 +3,7 @@
 Concrete proof that the City Brain layer implements the behaviors described
 in `ARCHITECTURE.md`. Every claim here is backed by a runnable command.
 
-Date of last verification: 2026-10-11
+Date of last verification: 2026-10-13
 
 ---
 
@@ -12,7 +12,18 @@ Date of last verification: 2026-10-11
     $ pytest
     28 passed
 
-Covers: mocks, schemas, model, pipeline paths, replay guard, Redis stream, smoke.
+Covers: mocks, schemas, model v2, pipeline paths, replay guard,
+Redis stream consumer, smoke.
+
+Test modules:
+
+    tests/test_mocks.py           7 tests
+    tests/test_model.py           8 tests
+    tests/test_pipeline.py        4 tests
+    tests/test_pipeline_paths.py  4 tests
+    tests/test_redis_stream.py    2 tests
+    tests/test_schemas.py         2 tests
+    tests/test_smoke.py           1 test
 
 ## 2. Adversarial scenarios
 
@@ -40,6 +51,14 @@ Covers: mocks, schemas, model, pipeline paths, replay guard, Redis stream, smoke
 - 3 replayed readings blocked before detection
 
 ## 4. Model decisions
+
+Decision model v2: RandomForest, **16 features**, trained on **20 000
+synthetic examples** with realistic distributions (hour of day, day of
+week, zone, seasonal incident patterns, label noise).
+
+    Train accuracy: 0.9758
+    Test  accuracy: 0.9752    ← model has never seen the test set
+    F1 macro:       0.96
 
 Every dispatch decision is logged with the source of the decision:
 
@@ -70,7 +89,7 @@ Both invariants hold: no dispatch without a trusted verdict.
 
 The Twin publishes readings to a Redis Stream. A standalone consumer
 (`scripts/run_consumer.py`) reads them via a consumer group and calls
-the pipeline. Fail-fast if Redis is unreachable — Docker restarts it.
+the pipeline. Fail-fast if Redis is unreachable.
 
     $ python scripts/run_consumer.py
     audit db connected events=N
@@ -83,7 +102,7 @@ the pipeline. Fail-fast if Redis is unreachable — Docker restarts it.
     processed corr=corr-83e32d13 state=dispatched kind=fire
 
 Confirms the full loop: Twin → Redis Stream → City Brain consumer
-→ decision (ML model) → Guardian → trust gate → dispatch → audit.
+→ decision (ML model v2) → Guardian → trust gate → dispatch → audit.
 
 ## 8. Audit trail in PostgreSQL (§7, §8)
 
@@ -114,13 +133,59 @@ Every decision is durably persisted and queryable by correlation_id.
 Any reading whose `seq` is not strictly greater than the last seen `seq`
 for that sensor is rejected before detection runs.
 
+## 10. MCP-style tool discovery
+
+    $ curl http://127.0.0.1:8000/mcp/tools
+    [
+      {"name": "city_brain.ingest",          "description": "...", "input_schema": {...}},
+      {"name": "city_brain.dispatch",        "description": "...", "input_schema": {...}},
+      {"name": "city_brain.receive_verdict", "description": "...", "input_schema": {...}},
+      {"name": "city_brain.health",          "description": "...", "input_schema": {...}}
+    ]
+
+Every sensor reading and actuator action is exposed as a named,
+discoverable tool with a JSON schema — satisfying the MCP-style
+requirement from the challenge brief.
+
+## 11. Docker Compose deployment
+
+    $ docker compose up -d
+    ✔ Container city-brain-postgres-1  Healthy
+    ✔ Container city-brain-redis-1     Healthy
+    ✔ Container city-brain-api-1       Started
+    ✔ Container city-brain-consumer-1  Started
+
+    $ docker compose ps
+    NAME                    STATUS
+    city-brain-api-1        Up (healthy)
+    city-brain-consumer-1   Up
+    city-brain-postgres-1   Up (healthy)
+    city-brain-redis-1      Up (healthy)
+
+    $ curl http://localhost:8000/health
+    {"status":"ok"}
+
+    $ curl http://localhost:8000/audit
+    {"total_events": 24}
+
+All four services start with a single command. The API and the consumer
+connect to PostgreSQL and Redis through Docker's internal network.
+The API container reads the audit table from the Postgres container
+via the service name — no host-level ports involved.
+
 ---
 
 ## Reproduce
 
 All commands above assume:
 
+    # Option A — native (4 terminals)
     Terminal 1: python scripts/run_mocks.py
     Terminal 2: uvicorn city_brain.main:app --port 8000 --reload
-    Terminal 3: python scripts/run_consumer.py      # Redis ingestion
+    Terminal 3: python scripts/run_consumer.py
     Terminal 4: <commands from this document>
+
+    # Option B — Docker (single command)
+    docker compose up -d
+    # then open http://localhost:8000/docs for the interactive API
+    # or  http://localhost:8000/mcp/tools for the MCP tool listing
