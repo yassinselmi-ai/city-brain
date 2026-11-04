@@ -15,25 +15,25 @@ City Brain does not try to detect fraud or anomalies itself. That is Guardian's 
 ---
 
 ## 2. System architecture
-┌────────────────────┐
-│ Twin (sensors) │
-│ Emits live readings │
-└─────────┬───────────┘
-readings │ readings
-┌──────────────────┴──────────────────┐
-▼ ▼
-┌────────────────────┐ verdict ┌────────────────────┐
-│ City Brain │◀───────────────│ Guardian │
-│ Decides, dispatches │ │ Verifies trust │
-└─────────┬───────────┘ └─────────┬───────────┘
-dispatch, if trusted contain, if rejected
-│ │
-└──────────────────┬───────────────────┘
-▼
-┌────────────────────┐
-│ Twin (actuators) │
-│ Executes actions │
-└────────────────────┘
+                         ┌────────────────────┐
+                         │   Twin (sensors)    │
+                         │ Emits live readings │
+                         └─────────┬───────────┘
+                     readings      │      readings
+                 ┌──────────────────┴──────────────────┐
+                 ▼                                      ▼
+      ┌────────────────────┐    verdict      ┌────────────────────┐
+      │     City Brain      │◀───────────────│      Guardian       │
+      │ Decides, dispatches │                 │  Verifies trust     │
+      └─────────┬───────────┘                 └─────────┬───────────┘
+          dispatch, if trusted             contain, if rejected
+                 │                                      │
+                 └──────────────────┬───────────────────┘
+                                     ▼
+                         ┌────────────────────┐
+                         │  Twin (actuators)   │
+                         │  Executes actions   │
+                         └────────────────────┘
 
 - Twin broadcasts every sensor reading to **both** City Brain and Guardian at the same time — neither layer waits on the other to start receiving data.
 - Guardian independently judges each reading and returns a trust verdict to City Brain.
@@ -269,14 +269,22 @@ Concrete, reproducible proof of every claim above lives in `EVIDENCE.md`.
 
 ### 10.9 Known limitations
 
-- Redis consumer-group state is per-process and in-memory for the replay
-  guard. Multi-worker deployments would need to move `ReplayGuard` state
-  into Redis (`TODO v2`).
-- `sig` verification is delegated to Guardian by design (§1). City Brain
-  carries the signature through, but does not re-verify it locally.
-- The decision model is trained on a synthetic dataset (2000 examples,
-  rule-generated labels). Accuracy will improve with real Twin data at
-  the 31 October matching.
-- Emergency-call `incident_type` values are hard-coded to
-  `accident`/`fire`/`flood`; unknown types are logged and ignored
-  (to be revisited once the Twin team confirms its enum).
+We document here the current boundaries of the Phase 1 delivery. Each
+limitation is either a deliberate architectural choice or a known
+dependency on partner layers, with a clear path forward for Phase 2.
+
+**1. Replay guard state is per-process (in-memory).**
+- *Reason:* For Phase 1, the system runs on a single API worker. 
+- *Impact:* If deployed with multiple workers (e.g., Kubernetes pods), a replay attack could bypass the guard by routing to a different worker.
+- *Phase 2 plan:* Migrate the `ReplayGuard` state to Redis (using a sorted set per `sensor_id`). This will make the guard stateless and horizontally scalable.
+
+**2. Cryptographic signatures (`sig`) are delegated to Guardian.**
+- *Reason:* By design (§1), City Brain is an operational layer, not a security layer. Duplicating signature verification could lead to "split-brain" scenarios where Guardian trusts a reading but City Brain rejects it (or vice versa).
+- *Impact:* If Guardian is compromised and lies about a signature, City Brain will trust the verdict.
+- *Defense:* We still carry the `sig` end-to-end in the audit log. If a breach is detected post-incident, we can trace exactly which reading was forged.
+- *Phase 2 plan:* Implement a lightweight HMAC verification in City Brain as a second line of defense, sharing a symmetric key with the Twin.
+
+**3. Decision model relies on synthetic data for rare events.**
+- *Reason:* For Phase 1, we could not access the Twin team's real simulation data. We trained on 21,313 examples (20,000 synthetic + 1,313 real NYC incidents).
+- *Impact:* The model performs exceptionally well on structured data (96.7% test accuracy) but may need fine-tuning for the specific zone names and sensor distributions used by the real Twin.
+- *Phase 2 plan:* At the 31 October matching, we will collect real sensor distributions from the Twin team and retrain the model (the training script is already parameterized and reproducible).
