@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>City Brain - Live Timeline</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        h1 { color: #4CAF50; text-align: center; }
+        .timeline { max-width: 900px; margin: 0 auto; background: #252526; border-radius: 8px; padding: 20px; }
+        .event { padding: 12px; margin-bottom: 10px; border-left: 5px solid #4CAF50; background: #333; border-radius: 4px; }
+        .event.verdict { border-left-color: #FFC107; }
+        .event.dispatch { border-left-color: #2196F3; }
+        .event.discard { border-left-color: #F44336; }
+        .timestamp { font-size: 0.8em; color: #888; }
+        .type { font-weight: bold; color: #fff; text-transform: uppercase; }
+        .details { margin-top: 5px; font-size: 0.95em; color: #ccc; }
+    </style>
+</head>
+<body>
+    <h1>🧠 City Brain — Live Timeline</h1>
+    <div class="timeline" id="timeline">
+        <div style="text-align: center; color: #888;">Connecting to API...</div>
+    </div>
+
+    <script>
+        async function updateTimeline() {
+            try {
+                const response = await fetch('/api/live-events');
+                const events = await response.json();
+                
+                const container = document.getElementById('timeline');
+                
+                if (events && events.length > 0) {
+                    container.innerHTML = ''; 
+                    // On affiche du plus récent au plus ancien
+                    events.slice().reverse().forEach(function(ev) {
+                        const div = document.createElement('div');
+                        div.className = 'event ' + (ev.class || '');
+                        
+                        const date = new Date(ev.ts * 1000);
+                        const timeString = date.toLocaleTimeString();
+
+                        div.innerHTML = 
+                            '<div class="timestamp">' + timeString + '</div>' +
+                            '<div class="type">' + ev.type + '</div>' +
+                            '<div class="details">' + ev.details + '</div>';
+                        
+                        container.appendChild(div);
+                    });
+                } else {
+                    container.innerHTML = '<div style="text-align: center; color: #888;">Waiting for events... (API is empty)</div>';
+                }
+            } catch (error) {
+                console.error("Erreur:", error);
+                document.getElementById('timeline').innerHTML = '<div style="color: red;">Error connecting to API</div>';
+            }
+        }
+
+        // Lancer au chargement, puis toutes les 1 seconde
+        updateTimeline();
+        setInterval(updateTimeline, 1000);
+    </script>
+</body>
+</html>

@@ -10,7 +10,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the whole project skeleton so both API and consumer work
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY scripts ./scripts

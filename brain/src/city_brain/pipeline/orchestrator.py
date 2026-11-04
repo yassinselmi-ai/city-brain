@@ -38,6 +38,9 @@ from city_brain.security.replay_guard import ReplayGuard
 from city_brain.schemas.guardian import GuardianVerdict
 from city_brain.schemas.twin import ActionAck, SensorReading, SeverityClass
 
+# Live dashboard hook
+from city_brain.observability.live_events import log_live_event
+
 log = logging.getLogger(__name__)
 
 
@@ -72,6 +75,7 @@ class Pipeline:
     # ------------------------------------------------------------------
     async def process(self, reading: SensorReading) -> PipelineResult:
         METRICS.record_ingest()
+        log_live_event("Reading Arrived", f"Sensor: {reading.sensor_id} | Type: {reading.type.value} | Severity: {reading.severity_class.value}", "reading")
 
         # §8: reject replayed / stale readings before anything else.
         replay = self.replay_guard.check(reading)
@@ -92,6 +96,7 @@ class Pipeline:
                 reading.correlation_id,
                 replay.reason,
             )
+            log_live_event("Replay Rejected", f"Sensor: {reading.sensor_id} | Seq: {replay.incoming_seq} <= {replay.last_seq}", "discard")
             return PipelineResult(
                 reading.correlation_id,
                 IncidentState.DETECTED,
@@ -154,6 +159,12 @@ class Pipeline:
         saved_ms = max(0.0, min(decide_ms, verify_ms))
         METRICS.record_critical_path(saved_ms)
 
+        log_live_event(
+            "Guardian Verdict", 
+            f"Verdict: {verdict.verdict.value if verdict else 'unreachable'} | Score: {verdict.trust_score if verdict else 0.0}",
+            "verdict"
+        )
+
         log.info(
             "critical parallel: decide=%.1fms verify=%.1fms parallel=%.1fms saved=%.1fms "
             "chosen_by=%s confidence=%.3f",
@@ -200,6 +211,7 @@ class Pipeline:
                 {"reason": gate_result.reason,
                  "commands_held": len(decision.commands)},
             )
+            log_live_event("Incident Discarded", f"Reason: {gate_result.reason}", "discard")
             return PipelineResult(
                 reading.correlation_id, sm.state, path="critical",
                 incident_kind=incident.kind.value, verdict=verdict,
@@ -228,6 +240,13 @@ class Pipeline:
 
         # 1. Verify FIRST
         verdict = await self.guardian.verify(reading)
+        
+        log_live_event(
+            "Guardian Verdict", 
+            f"Verdict: {verdict.verdict.value if verdict else 'unreachable'} | Score: {verdict.trust_score if verdict else 0.0}",
+            "verdict"
+        )
+
         await self.audit.record(
             "guardian_verdict",
             reading.correlation_id,
@@ -245,6 +264,7 @@ class Pipeline:
             await self.audit.record(
                 "discarded", reading.correlation_id, {"reason": gate_result.reason}
             )
+            log_live_event("Incident Discarded", f"Reason: {gate_result.reason}", "discard")
             return PipelineResult(
                 reading.correlation_id, sm.state, path="normal",
                 incident_kind=incident.kind.value, verdict=verdict,
@@ -291,5 +311,10 @@ class Pipeline:
                 decision.correlation_id,
                 {"actuator_id": cmd.actuator_id, "action": cmd.action,
                  "ack": ack.status if ack else "no_ack"},
+            )
+            log_live_event(
+                "Action Dispatched", 
+                f"Actuator: {cmd.actuator_id} | Action: {cmd.action} | Corr: {decision.correlation_id}", 
+                "dispatch"
             )
         return acks
