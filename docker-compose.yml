@@ -1,29 +1,38 @@
 services:
-  api:
-    build: .
+  # ==========================================
+  # CITY BRAIN LAYER (Our Team)
+  # ==========================================
+  brain-api:
+    build:
+      context: ./brain
+      dockerfile: Dockerfile
     ports: ["8000:8000"]
     environment:
-      DATABASE_URL: postgresql://citybrain:citybrain@postgres:5432/citybrain
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://citybrain:citybrain@brain-postgres:5432/citybrain
+      REDIS_URL: redis://brain-redis:6379/0
       TRUST_THRESHOLD: "0.7"
+      MODEL_PATH: models/city_brain_v1.pkl
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
+      brain-postgres: {condition: service_healthy}
+      brain-redis: {condition: service_healthy}
     restart: unless-stopped
 
-  consumer:
-    build: .
+  brain-consumer:
+    build:
+      context: ./brain
+      dockerfile: Dockerfile
     command: ["python", "scripts/run_consumer.py"]
     environment:
-      DATABASE_URL: postgresql://citybrain:citybrain@postgres:5432/citybrain
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://citybrain:citybrain@brain-postgres:5432/citybrain
+      REDIS_URL: redis://brain-redis:6379/0
       TRUST_THRESHOLD: "0.7"
+      MODEL_PATH: models/city_brain_v1.pkl
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
+      brain-postgres: {condition: service_healthy}
+      brain-redis: {condition: service_healthy}
     restart: on-failure:5
 
-  postgres:
+  brain-postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: citybrain
@@ -36,13 +45,27 @@ services:
       interval: 5s
       retries: 10
 
-  redis:
+  brain-redis:
     image: redis:7-alpine
     ports: ["6380:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 10
+
+  # ==========================================
+  # TWIN LAYER (Placeholder for Oct 31 matching)
+  # ==========================================
+  # twin-api:
+  #   build: ./twin
+  #   ports: ["8001:8001"]
+
+  # ==========================================
+  # GUARDIAN LAYER (Placeholder for Oct 31 matching)
+  # ==========================================
+  # guardian-api:
+  #   build: ./guardian
+  #   ports: ["8002:8002"]
 
 volumes:
   pgdata:
