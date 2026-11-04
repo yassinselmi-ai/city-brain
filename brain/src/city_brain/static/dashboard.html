@@ -95,6 +95,35 @@
         ::-webkit-scrollbar-track { background: var(--bg); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+        /* RADAR ANIMATIONS */
+        @keyframes sweep {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .blip {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            background: transparent;
+            box-shadow: 0 0 0 0 transparent;
+            transition: all 0.2s;
+        }
+
+        .blip.active {
+            background: var(--danger);
+            box-shadow: 0 0 10px 2px var(--danger);
+            animation: blip-ping 1.5s ease-out infinite;
+        }
+
+        @keyframes blip-ping {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
     </style>
 </head>
 <body>
@@ -140,10 +169,45 @@
                 <button class="btn blue" onclick="simulate('flood')">🌊 Trigger Flood</button>
             </div>
             
-            <div class="panel control-box" style="flex:1; display:flex; flex-direction:column; justify-content:flex-end;">
-                <div style="font-family:'Share Tech Mono'; font-size:0.75rem; color:var(--dim); text-align:center; opacity:0.6;">
-                    TSYP14 // CITY BRAIN CONVERGENCE<br>
-                    BRAIN LAYER v1.0
+            <!-- TACTICAL RADAR -->
+            <div class="panel" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+                <div class="panel-header" style="font-size:0.8rem;">
+                    <span>TACTICAL RADAR</span>
+                    <span style="color:var(--neon); animation: pulse 1.5s infinite;">● SCANNING</span>
+                </div>
+                <div style="flex:1; position:relative; background: #05080f; display:flex; justify-content:center; align-items:center; padding: 10px; overflow:hidden;">
+                    
+                    <!-- Radar Grid & Sweep -->
+                    <div style="position:relative; width: 100%; aspect-ratio: 1; max-width: 250px; border-radius: 50%; border: 2px solid rgba(0, 255, 157, 0.3); box-shadow: 0 0 20px rgba(0, 255, 157, 0.1) inset;">
+                        
+                        <!-- Grid Lines -->
+                        <div style="position:absolute; top:0; left:50%; width:1px; height:100%; background:rgba(0, 255, 157, 0.15);"></div>
+                        <div style="position:absolute; top:50%; left:0; width:100%; height:1px; background:rgba(0, 255, 157, 0.15);"></div>
+                        <div style="position:absolute; top:25%; left:25%; width:50%; height:50%; border-radius:50%; border:1px solid rgba(0, 255, 157, 0.15);"></div>
+                        <div style="position:absolute; top:12.5%; left:12.5%; width:75%; height:75%; border-radius:50%; border:1px solid rgba(0, 255, 157, 0.15);"></div>
+                        
+                        <!-- Concentric Rings -->
+                        <div style="position:absolute; top:15%; left:15%; width:70%; height:70%; border-radius:50%; border:1px dashed rgba(0, 255, 157, 0.2);"></div>
+                        <div style="position:absolute; top:35%; left:35%; width:30%; height:30%; border-radius:50%; border:1px dashed rgba(0, 255, 157, 0.2);"></div>
+                        
+                        <!-- Radar Sweep with Afterglow -->
+                        <div class="radar-sweep" style="position:absolute; top:0; left:0; width:100%; height:100%; border-radius:50%; background: conic-gradient(from 0deg, transparent 0deg, rgba(0, 255, 157, 0.4) 360deg); animation: sweep 4s linear infinite;"></div>
+                        
+                        <!-- Blips -->
+                        <div id="blip-downtown" class="blip" style="top: 30%; left: 50%;"></div>
+                        <div id="blip-north" class="blip" style="top: 20%; left: 30%;"></div>
+                        <div id="blip-south" class="blip" style="top: 70%; left: 70%;"></div>
+                        <div id="blip-harbor" class="blip" style="top: 50%; left: 80%;"></div>
+
+                        <!-- Labels -->
+                        <span style="position:absolute; top:5%; left:50%; transform:translateX(-50%); font-size:10px; color:rgba(0,255,157,0.6); font-family:'Share Tech Mono';">N</span>
+                        <span style="position:absolute; bottom:5%; left:50%; transform:translateX(-50%); font-size:10px; color:rgba(0,255,157,0.6); font-family:'Share Tech Mono';">S</span>
+                        <span style="position:absolute; top:50%; left:5%; transform:translateY(-50%); font-size:10px; color:rgba(0,255,157,0.6); font-family:'Share Tech Mono';">W</span>
+                        <span style="position:absolute; top:50%; right:5%; transform:translateY(-50%); font-size:10px; color:rgba(0,255,157,0.6); font-family:'Share Tech Mono';">E</span>
+                    </div>
+                </div>
+                <div style="font-family:'Share Tech Mono'; font-size:0.7rem; color:var(--dim); text-align:center; padding:5px; border-top:1px solid var(--border);">
+                    TSYP14 // BRAIN v1.0
                 </div>
             </div>
         </div>
@@ -203,27 +267,59 @@
         }
         function playDiscard() { playTone(200, 'sawtooth', 0.3, 0.05); }
 
-        // --- 3. DATA FETCHING & RENDERING ---
-        let lastEventCount = 0;
+        // --- 3. RADAR BLIPS ---
+        function blinkRadar(zone) {
+            const blip = document.getElementById('blip-' + zone);
+            if (!blip) return;
+            
+            // Add active class (shows red dot and pings)
+            blip.classList.add('active');
+            
+            // Remove after 4 seconds
+            setTimeout(() => {
+                blip.classList.remove('active');
+            }, 4000); 
+        }
+
+        // --- 4. DATA FETCHING & RENDERING ---
+        let lastEventTs = 0;
 
         async function fetchData() {
             try {
-                const resEvents = await fetch('/api/live-events');
+                const resEvents = await fetch('/api/live-events', { cache: 'no-store' });
                 const events = await resEvents.json();
                 const timeline = document.getElementById('timeline');
                 
                 if (events && events.length > 0) {
-                    if (events.length !== lastEventCount) {
-                        
-                        // Sound trigger for newest event
-                        if (events.length > lastEventCount && lastEventCount > 0) {
-                            const newest = events[events.length - 1];
-                            if (newest.type === "Reading Arrived") playReading();
-                            else if (newest.type === "Guardian Verdict") playVerdict();
-                            else if (newest.type === "Action Dispatched") playDispatch();
-                            else if (newest.type === "Incident Discarded" || newest.type === "Replay Rejected") playDiscard();
-                        }
+                    // On récupère le timestamp du dernier événement connu
+                    const newestTs = events[events.length - 1].ts;
 
+                    // Si le timestamp est plus récent que le dernier qu'on a vu
+                    if (newestTs > lastEventTs) {
+                        
+                        // On filtre les événements qui sont plus récents que lastEventTs
+                        const newEvents = events.filter(ev => ev.ts > lastEventTs);
+                        const now = Date.now();
+                        let soundCount = 0;
+                        
+                        newEvents.forEach(ev => {
+                            const age = now - (ev.ts * 1000);
+                            if (age < 3000 && soundCount < 3) {
+                                if (ev.type === "Reading Arrived") { playReading(); soundCount++; }
+                                else if (ev.type === "Guardian Verdict") { playVerdict(); soundCount++; }
+                                else if (ev.type === "Action Dispatched") {
+                                    playDispatch(); soundCount++;
+                                    const d = ev.details.toLowerCase();
+                                    if (d.includes('downtown')) blinkRadar('downtown');
+                                    if (d.includes('north')) blinkRadar('north');
+                                    if (d.includes('south')) blinkRadar('south');
+                                    if (d.includes('harbor')) blinkRadar('harbor');
+                                }
+                                else if (ev.type === "Incident Discarded" || ev.type === "Replay Rejected") { playDiscard(); soundCount++; }
+                            }
+                        });
+
+                        // Re-render timeline
                         timeline.innerHTML = '';
                         events.slice().reverse().forEach(ev => {
                             const div = document.createElement('div');
@@ -239,11 +335,13 @@
                             `;
                             timeline.appendChild(div);
                         });
-                        lastEventCount = events.length;
+
+                        // Mettre à jour le dernier timestamp vu
+                        lastEventTs = newestTs;
                     }
                 }
 
-                const resMetrics = await fetch('/metrics');
+                const resMetrics = await fetch('/metrics', { cache: 'no-store' });
                 const m = await resMetrics.json();
                 
                 document.getElementById('kpi-readings').innerText = m.readings_ingested_total;
@@ -272,7 +370,7 @@
         setInterval(fetchData, 1000);
         fetchData();
 
-        // --- 4. SIMULATION TRIGGER ---
+        // --- 5. SIMULATION TRIGGER ---
         async function simulate(type) {
             try {
                 await fetch('/api/simulate?incident_type=' + type, { method: 'POST' });
