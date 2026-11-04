@@ -12,6 +12,8 @@ services:
       REDIS_URL: redis://brain-redis:6379/0
       TRUST_THRESHOLD: "0.7"
       MODEL_PATH: models/city_brain_v1.pkl
+      TWIN_URL: http://twin-mock:8002
+      GUARDIAN_URL: http://guardian-mock:8001
     depends_on:
       brain-postgres: {condition: service_healthy}
       brain-redis: {condition: service_healthy}
@@ -27,6 +29,8 @@ services:
       REDIS_URL: redis://brain-redis:6379/0
       TRUST_THRESHOLD: "0.7"
       MODEL_PATH: models/city_brain_v1.pkl
+      TWIN_URL: http://twin-mock:8002
+      GUARDIAN_URL: http://guardian-mock:8001
     depends_on:
       brain-postgres: {condition: service_healthy}
       brain-redis: {condition: service_healthy}
@@ -54,18 +58,23 @@ services:
       retries: 10
 
   # ==========================================
-  # TWIN LAYER (Placeholder for Oct 31 matching)
+  # MOCKS (For testing & demo)
   # ==========================================
-  # twin-api:
-  #   build: ./twin
-  #   ports: ["8001:8001"]
+  twin-mock:
+    build:
+      context: ./brain
+      dockerfile: Dockerfile
+    command: ["uvicorn", "mocks.twin_mock:app", "--host", "0.0.0.0", "--port", "8002"]
+    ports: ["8002:8002"]
 
-  # ==========================================
-  # GUARDIAN LAYER (Placeholder for Oct 31 matching)
-  # ==========================================
-  # guardian-api:
-  #   build: ./guardian
-  #   ports: ["8002:8002"]
+  guardian-mock:
+    build:
+      context: ./brain
+      dockerfile: Dockerfile
+    command: ["uvicorn", "mocks.guardian_mock:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports: ["8001:8001"]
+    environment:
+      GUARDIAN_CHAOS: "off"
 
 volumes:
   pgdata:
